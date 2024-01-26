@@ -1,0 +1,467 @@
+---
+title: "GEOG 215: Assignment #6, ESDA - Spatial Clustering"
+author: "Daniel Crownover"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  html_document:
+     theme: journal
+     highlight: textmate
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+```{r libraries, message = FALSE, warning = FALSE}
+# Get spatial libraries
+library(tidyverse)
+library(sf)
+library(tmap)
+library(spdep)
+library(spatstat)
+library(maptools)
+## Load library for table styling
+#library(knitr)
+#library(kableExtra)
+```
+
+# Part 1, Spatial Autocorrelation ESDA
+
+In this part of the analysis, we will be examining whether COVID-19 case rates (for cases reported over a two week period) are spatially autocorrelated, and we will be identifying where there are high and low COVID-19 case rate clusters (and outliers).
+
+## Read in North Carolina COVID data
+
+```{r readdata, message = FALSE, warning = FALSE}
+# Download, Unzip, Read in the NC School Districts Shapefile
+nc.zip <- read_sf("../Data/nc_zip_mapping.shp")
+
+## Read in COVID data
+nc.covid <- read_csv("../Data/NC_ZIP_cumulative_incidence_2020-10-25.csv")
+
+## Merge spatial and non-spatial data
+nc.zip <- merge(nc.zip, 
+                nc.covid, 
+                by.x = "ZIP_CODE", 
+                by.y = "ZIPCODEmap")
+```
+
+## ESDA - Descriptive Statistics, Average Score
+
+```{r descriptive, message = FALSE, warning = FALSE}
+####
+####
+#### We will be working with the column CASES14DR
+#### This is the number of cases in the prior 14 days
+#### divided by the number of Zip Code residents
+####
+####
+
+# Number of observations
+n.obs <- nrow(nc.zip)
+
+# Number of NON-NA observations
+n.good.obs <- sum(!is.na(nc.zip$CASES14DR))
+
+# Mean of CASES per person over prior 14 days
+mean.nc <- round(mean(nc.zip$CASES14DR, na.rm = TRUE), 3)
+
+# Minimum and Maximum of CASES per person over prior 14 days
+min.nc <- round(min(nc.zip$CASES14DR, na.rm = TRUE), 3)
+max.nc <- round(max(nc.zip$CASES14DR, na.rm = TRUE), 3)
+```
+
+HERE, WRITE A 1-2 SENTENCE SUMMARY OF THE INFORMATION ABOVE (USE INLINE CODE TO INSERT VALUES) 
+
+Above, we are obtaining descriptive statistics summary, number of observations, cases per person, minimum, max and mean. This allows me, the data analyzer, to have a more well versed idea about the data before continuing to take the MORAN i and other important information from the data.
+
+
+
+******
+
+
+
+
+## ESDA - Distribution and Map
+
+```{r distribution, message = FALSE, warning = FALSE}
+# Create a histogram of CASES14DR
+ggplot(nc.zip,                  ## R object
+       aes(x = CASES14DR)) +    ## Column in object
+  geom_histogram(na.rm = TRUE,  ## Add histogram bars without NA warning 
+                 bins = 40,     ## Add histogram bars
+                 fill = "red",  ## Fill color of histogram bars 
+                 col = "black", ## Line color of histogram bars 
+                 size = 0.25,   ## Line weight/thickness of historam bars  
+                 alpha = 0.5) + ## Fill transparency   
+  labs(x = "COVID-19 Case Rate (2 weeks)",     ## X axis label
+       y = "Number of Zip Codes") +            ## Y axis label
+  theme_classic()                              ## Apply theme
+
+# Make a quick choropleth map of CASES14DR
+tm_shape(nc.zip) + 
+  tm_polygons("CASES14DR",
+              title = "COVID Case Rate (2 weeks)",
+              style = "jenks",
+              palette = "Reds",
+              border.col = "Black",
+              border.alpha = 0.25,
+              legend.hist = TRUE) +
+  tm_layout(legend.outside = TRUE)
+```
+
+HERE, WRITE A 2-3 SENTENCE SUMMARY OF WHAT YOU SEE IN THE HISTOGRAM AND MAP:
+
+Above, the data is normalized by population, the histogram is skewed to the right. Because the data is normalized by population, we know that it is NOT population which is causing the data to slightly skew to the right. The spatial distribution of the map seems to be slightly skewed to the right as well, observing more darker colors farther toward the coast than in the mountain regions.
+
+
+
+******
+
+## ESDA - Neighbors and Neighborhoods**
+
+```{r neighbors, message = FALSE, warning = FALSE}
+
+## Subset data to ONLY observations with values!
+## We have to remove NAs!!
+nc.zip <- nc.zip[which(!is.na(nc.zip$CASES14DR)), ]
+
+## Create Queen case neighbors**
+nc.zip.nb.queen <- poly2nb(nc.zip, 
+                           queen = TRUE)
+
+## Print summary to screen-- polygons 722 zip, 5.42 neighbors on average 
+nc.zip.nb.queen
+
+```
+
+******
+
+## ESDA - Spatial Autocorrelation (Moran's I)**
+
+```{r moransI, message = FALSE, warning = FALSE}
+## opeining a big matrix- columns are every global 
+## Convert neighbor object to weight matrix
+## created neighbors
+nc.zip.w.queen <-  nb2listw(nc.zip.nb.queen, 
+                            style = "B",         # B is binary (1,0)
+                            zero.policy = TRUE)  # Allow obs with 0 neighbors
+
+#
+# Moran's I
+#
+nc.zip.moran <- moran.test(nc.zip$CASES14DR,       # Data we're analyzing
+                           nc.zip.w.queen,         # Sp weights matrix
+                           randomisation = TRUE,   # Compare to randomized values
+                           zero.policy = TRUE)     # Allow obs with 0 neighbors
+
+## Summary
+nc.zip.moran
+## creating a list of the neighbors for every single zip( each zip code is represented by an index)
+## global representation of spatial pattern
+```
+
+HERE, WRITE A 2 SENTENCE SUMMARY OF THE MORAN'S I RESULT AND WHAT IT MEANS:
+
+The Moran's I statistic suggest that the spatial data is slightly clustered because of its general push toward the positive one- because the value is at .1347. The P-value is less that .01 and allows us to reject the hypothesis that the data is random (null hypothesus) and therefore we cansupport the hypothesis that it is more clustered than random.
+
+
+
+
+******
+
+## ESDA - Spatial Autocorrelation (LISA)**
+
+```{r lisa, message = FALSE, warning = FALSE}
+
+#
+# LISA -- Local Moran's I
+#
+nc.zip.lisa <- localmoran(nc.zip$CASES14DR,        # The column in your sp data 
+                          nc.zip.w.queen,          # Weights object
+                          zero.policy = TRUE) %>%  # Best to keep TRUE for LISA
+  as.data.frame()  # Make result into data frame
+
+## To get "nice" LISA categories for mapping
+## takes a bit of work in R, unfortunately
+
+# Scale the input data to deviation from mean
+cDV <- nc.zip$CASES14DR - mean(nc.zip$CASES14DR) 
+
+# Get spatial lag values for each observation
+# These are the neighbors' values!
+lagDV <- lag.listw(nc.zip.w.queen, nc.zip$CASES14DR)
+
+# Scale the lag values to deviation from mean
+clagDV <- lagDV - mean(lagDV, na.rm = TRUE)
+
+# Add holder column with all 0s
+nc.zip.lisa$Cat <- rep("0", nrow(nc.zip.lisa))
+
+# This simply adds a label based on the values
+nc.zip.lisa$Cat[which(cDV > 0 & clagDV > 0 & nc.zip.lisa[,5] < 0.05)] <- "HH" 
+nc.zip.lisa$Cat[which(cDV < 0 & clagDV < 0 & nc.zip.lisa[,5] < 0.05)] <- "LL"      
+nc.zip.lisa$Cat[which(cDV < 0 & clagDV > 0 & nc.zip.lisa[,5] < 0.05)] <- "LH"
+nc.zip.lisa$Cat[which(cDV > 0 & clagDV < 0 & nc.zip.lisa[,5] < 0.05)] <- "HL"
+
+## Quick SUMMARY of LISA output
+table(nc.zip.lisa$Cat)
+
+## Add LISA category column to the spatial data
+## for mapping!
+nc.zip$LISACAT <- nc.zip.lisa$Cat
+
+# Plot two maps together!
+# First, the chorolpleth map
+covid.tmap <- tm_shape(nc.zip) + 
+  tm_polygons("CASES14DR",
+              title = "COVID Case Rate (2 weeks)",
+              style = "jenks",
+              palette = "Reds",
+              border.col = "Black",
+              border.alpha = 0.25,
+              legend.hist = TRUE) +
+  tm_layout(legend.outside = TRUE)
+# Second the LISA map
+lisa.tmap <- tm_shape(nc.zip) + 
+  tm_polygons("LISACAT", 
+              title = "LISA Category",
+  #            style = "cat", 
+              palette = c("0" = "grey", 
+                          "HH" = "red",
+  #                        "HL" = "lightred",
+                          "LL" = "blue",
+                          "LH" = "lightblue"), 
+              border.col = "Black", 
+              border.alpha = 0.25) +
+  tm_layout(legend.outside = TRUE)
+# This command maps them together!
+tmap_arrange(covid.tmap, lisa.tmap)  
+
+### For LISA mapping above, use the following pallette
+### option if you have observations in all four LISA
+### categories (plus 0s)
+#              palette = c("0" = "grey", 
+#                          "HH" = "red",
+#                          "HL" = "lightred",
+#                          "LL" = "blue",
+#                          "LH" = "lightblue") 
+
+```
+
+HERE, WRITE A 2-3 SENTENCE SUMMARY OF THE LISA RESULTS AND WHAT IT MEANS (hint: get some information from the summary of the LISA output):
+
+Above we are calculating the LOCAL spatial auto correlation moran's i- which is called LISA or local indicator of spatial association. We are using the summary list to obtain information about the data. We had 672 zip codes that had a zero spatial autocorrelation. We had 33 zip codes that was high observations and high neighbors(HH), 13 LH or low observations and high neighbors and 6 LL or low observations low neighbors. This information helps the data analyzer see any "strong" or "weak" spots spatial autocorrelation.
+
+
+
+******
+******
+
+# Part 2, Spatial Cluster Analysis, Point Data --> 
+
+In this part of the analysis, we will be examining 311 Case reports of human or animal waste in San Francisco (using data from 2020). [Read more about the data here](https://data.sfgov.org/City-Infrastructure/311-Cases/vw6y-z8j6). A number of news stories have reported on the city's struggles with providing services and care for their homeless population^[e.g., https://www.businessinsider.com/san-francisco-human-poop-problem-2019-4, https://www.vice.com/en_us/article/a3xdae/more-people-pooping-in-san-francisco-than-ever-all-time-high-vgtrn, https://sfist.com/2019/05/01/a-brief-history-of-poop-on-the-streets-of-san-francisco/]. Specifically, there are a lack of public restrooms that are made available to the city's homeless population.
+
+## Read in San Francisco 311 data
+
+```{r readsf, message = FALSE, warning = FALSE}
+## Read in SF 311 reports of human or animal waste
+sf.waste <- read_csv("../Data/SF_311_Cases_human_animal_waste_2020.csv")
+
+## Convert to sf object
+sf.waste <- st_as_sf(sf.waste,
+                     coords = c("Longitude",
+                                "Latitude"),
+                     crs = 4326)   ## WGS 84
+
+## Read in shapefile of SF neighborhoods
+sf.bound <- read_sf("https://data.sfgov.org/api/geospatial/p5b7-5n3h?method=export&format=GeoJSON")
+
+##
+## Aggregate (dissolve neighborhood boundaries)
+##
+## First, add a column to aggregate, then aggregate
+sf.bound$area <- st_area(sf.bound)
+sf.bound <- sf.bound %>%
+  summarise(area = sum(area))
+
+## Reproject data to a Projected Coordinate System
+## CA State Plane, Zone 3 (meters)
+sf.waste <- st_transform(sf.waste, crs = 26943)
+sf.bound <- st_transform(sf.bound, crs = 26943)
+
+## Quick plot
+plot(st_geometry(sf.bound))
+plot(st_geometry(sf.waste), 
+     pch = 20,
+     col = rgb(1, 0, 0, 0.4),
+     add = TRUE)
+
+## Clip points only those inside boundary
+sf.waste <- st_join(sf.waste,
+                    sf.bound,
+                    left = FALSE) # This parameter subsets to those "inside"
+```
+
+## ESDA - Descriptive Statistics
+
+```{r descsf, message = FALSE, warning = FALSE}
+## Basic ESDA information for incidents
+## Get number of observations
+n.obs <- nrow(sf.waste)
+n.obs
+
+## Get density = observations / area
+# Calculate density per square km (not square meters)
+sf.waste.density <- n.obs / (st_area(sf.bound) / 1000000)
+as.numeric(sf.waste.density) # reports per km^2
+
+## Barplot of Status
+ggplot(data = sf.waste, 
+       aes(x = `Police District`)) +
+  geom_bar(stat = "count", 
+           width = 0.5) +
+  coord_flip()
+
+```
+
+HERE, WRITE A 2-3 SENTENCE SUMMARY OF THE DESCRIPTIVE STATISTICS RESULTS:
+
+The barchart flipped on its side displays the place/location of the event, bayveiw, mission ect. against the frequency/count of cases of human/animal waste observed in San Fransisco in 2020. The R.console shows- in order top to bottom - the total number of incidents reported, and the number of reports of human/animal waste reported per square km(km^2). 
+
+
+
+******
+
+## Quadrat Analysis
+
+```{r quadrat, message = FALSE, warning = FALSE}
+## First, get the data in the proper format to use the
+## spatstat pont pattern analysis functions
+## Convert to ppp format
+sf.waste.ppp <- as(sf.waste, "Spatial") %>% as("ppp")
+
+## Note that these are UNMARKED points
+marks(sf.waste.ppp) <- NULL
+
+## Provide data with the STUDY AREA bounds as a window
+Window(sf.waste.ppp) <- as(sf.bound, "Spatial") %>% as("owin")
+
+## Plot the layer to ensure that the boundary is properly defined 
+plot(sf.waste.ppp, 
+     main = NULL, 
+     cols = rgb(0, 0, 0, 0.5), 
+     pch = 20)
+
+## Create Quadrat Counts
+## We will use the same number of rows and columns, 
+## given the shape of SF
+sf.waste.ppp.quadrat <- quadratcount(sf.waste.ppp,
+                                     nx = 20,
+                                     ny = 20)
+
+## Plot the quadrat counts
+plot(sf.waste.ppp.quadrat, 
+     cex = 0.4)              ## Controls size of text
+
+#
+# Perform the quadrat test
+# Use nx = 20 and ny = 20
+#
+sf.waste.ppp.quadrat.test <- quadrat.test(sf.waste.ppp,
+                                          nx = 20,
+                                          ny = 20)
+
+## Calculate and print Variance to Mean Ratio
+sf.waste.VMR <- var(sf.waste.ppp.quadrat.test$observed) / mean(sf.waste.ppp.quadrat.test$observed)
+sf.waste.VMR
+
+## Print test results to screen
+sf.waste.ppp.quadrat.test
+
+```
+
+
+HERE, WRITE A 2-3 SENTENCE SUMMARY OF THE QUADRAT TEST RESULTS (use specific information from the results above > see lecture material and exercises for help):
+
+Above we have sectioned off the city of San Fransisco into 303 evenly sized quadrants. the p-value of the quadrants is less than .05, suggesting we reject the hypothesis that it is random point and that IT IS distinguishable from a completely random pattern - hence supporting a more clustered pattern. The variance to mean ratio is 429.343 and since the VTMR > 1,  this proves that this is clustered spatial pattern.
+
+
+
+
+
+******
+
+## Nearest Neighbor Analysis
+
+```{r nnd, message = FALSE, warning = FALSE}
+##
+## Calculate the expected NND for a randomly distributed
+## set of points in our study area
+##
+
+# Get the area measure and perimeter length of Durham County
+sf.area <- st_area(sf.bound)
+# Perimeter is a bit more difficult because of complex polygon
+sf.per <- st_cast(sf.bound, "MULTILINESTRING") %>% 
+  st_cast("LINESTRING") %>%
+  st_length() %>%
+  sum()
+# Warning is okay
+
+## Now, calculate theoretical Nearest Neighbor Distance for random
+nnd.random <- sqrt(sf.area/n.obs)/2 + (0.0514 + (0.041/(sqrt(n.obs))))*(sf.per/n.obs) 
+## And, calculate the variance for random
+sigma.nnd.random <- sqrt(((0.07*sf.area)/n.obs^2) + 0.037*sf.per*sqrt(sf.area/n.obs^5))
+
+## Print
+nnd.random
+sigma.nnd.random
+
+## The average Nearest Neighbor distance of
+## human or animal waste randomly distributed throughout 
+## SF would be 37.7 meters (with variance of 0.14 meters)
+
+##
+## Calculate Nearest Neighbor Distance (NND) for observed data
+##
+## There is a function for NND in spatstat
+sf.waste.ppp.NND <- nndist(sf.waste.ppp)
+
+## Now, get the mean of the NND and print to screen
+NND <- mean(sf.waste.ppp.NND)
+NND
+
+## Calculate Z score of test
+z.score.NND <- (NND - as.numeric(nnd.random)) / as.numeric(sigma.nnd.random)
+z.score.NND
+
+## Calculate p-value of test
+pt(z.score.NND, n.obs-1)  
+## Here 0 is very low, means highly statistically significant
+
+```
+
+HERE, WRITE A 2-3 SENTENCE SUMMARY OF THE NEAREST NEIGHBOR DISTANCE TEST RESULTS (use specific information from the results above > see lecture material and exercises for help)
+
+
+The first statistic is NND.random which estimates the nearest neighbor distance if the data.frame was random. but because the data fram IS NOT random and is clustered, it shows the new mean distance from neighbors as 15.229(represented as NND). This is also less distance than before, which indicate the data points are more clustered. the Z score is negative and represents the amount of SD away from the mean. Since it is negative, this proves it is a clustered distribution. the P-value is 0, this means that it is highly statistically significant- translating to, its a clustered distribution rather than a random(statistically significant), we reject the hypothesis that it is in a random pattern.
+
+
+
+
+******
+
+## Use Kernel Density (to make a quick, decent looking map)
+
+```{r kdmap}
+## Kernel density function using default bandwidth
+k1 <- density(sf.waste.ppp)
+
+## Make a continuous map of intensity/density
+plot(k1, 
+     main = NULL, 
+     las = 1)
+contour(k1, 
+        add = TRUE)
+```
