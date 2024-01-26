@@ -1,0 +1,269 @@
+---
+title: "Final Project"
+author: "Daniel Crownover"
+date: 'Updated on `r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    theme: paper
+    toc: yes
+    toc_float: yes
+    code_folding: show
+---
+
+```{r setup, include=FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(wordcountaddin)
+library(tidyverse)
+library(sf)
+library(tmap)
+library(knitr)
+library(kableExtra)
+library(spdep)
+library(spatstat)
+library(maptools)
+library(leafsync)
+
+```
+
+## Introduction
+
+This project introduces data on the percent of foreign born people who have Israeli descent that are living in the state of Colorado in 2021. The data is per census tract for Colorado. Since there is a limited number of people of Israeli descent living in the state, the data is sparse and contains many zero values. The data frame is normalized by population and any inference according to the data cannot be due to population concentration. A data description table, histogram, map and LISA map where provided for data anylazation purposes.
+
+
+*****
+
+## Data Preparation
+Before extracting data, an API key was used to download data from the web. After this I used the tidycensus package to extract all available variables for each survey provided. I then isolated the variable of interest, which in my case was foreign born people of Israeli descent for the entire united states. After this I retrived the normalization variable, which was the total number of foreign born people for the entire United States. I then used the get_asc command to extract my "data of intrest(foreign born people with israeli descent)" from just the state of Colorado for 2021 specifically. After this, I used the tigris package to get all the census tract data from the state of Colorado in 2021. Seperately, I "cleaned" up the data by creating a population percent- and normalized the data- for foreign born people of Israeli orgin which I could use for later mapping and analysis. I then spatialized the data sets by executing a table join between the census tract data frame(spatial) and the percent Israeli descent data frame(nonspatial). After creating this new shapefile, I saved it to the "final project" folder on my computer using the write command. This final shapefile could now be soely read in to R as a shapefile, independent of any further data preparation of this nature.
+
+### Read In Data
+```{r, message = FALSE, warning = FALSE}
+## reading in data
+merged_data_CO <- st_read("../Data/merged_dataCO.shp")
+```
+
+*****
+
+## Exploratory Spatial Data Analysis
+
+### Data Description and Summary
+```{r, histogram1, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 4, message = FALSE, warning = FALSE }
+# Create summary information holder-- tibble = tidyverse
+##Each census tract contains the percentage number of foreign born people in that tract that have Israel descent. This gets the min,max,mean,median,SD and Num of N/A values
+summary.table <- tibble(Measure = c("Observations",
+                                    "Minimum",
+                                    "Maximum",
+                                    "Mean",
+                                    "Median",
+                                    "Standard Deviation",
+                                    "Number of N/A"),
+                        `percent` = c(sum(!is.na(merged_data_CO$percent)),
+                                       min(merged_data_CO$percent, na.rm = TRUE),
+                                       max(merged_data_CO$percent, na.rm = TRUE),
+                                       mean(merged_data_CO$percent, na.rm = TRUE),
+                                       median(merged_data_CO$percent, na.rm = TRUE),
+                                       sd(merged_data_CO$percent, na.rm = TRUE), 
+                                       sum(is.na(merged_data_CO$percent))
+                                       )
+       
+)
+
+## Print nice version of the table-- using the kable command
+kable(summary.table, 
+      digits = 1,
+      format.args = list(big.mark = ",",
+                         scientific = FALSE,
+                         drop0trailing = TRUE),
+      caption = "Data Summary: Percent of Foreign Born People in CO with Israeili Descent") %>% 
+  kable_styling(bootstrap_options = c("striped", 
+                                      "hover", 
+                                      "condensed", 
+                                      "responsive"), 
+                full_width = F)
+
+
+##Histogram - using ggplot
+ggplot(merged_data_CO, 
+       aes(x = merged_data_CO$percent)) + 
+  geom_histogram(binwidth = 10) +
+  xlab("Percent Foreign Born People with Israeli Descent per Census Tract") +
+  ggtitle("Percent Foreign Born People with Israeli Descent per Census Tract Against Frequency") +
+  theme_minimal()
+```
+
+
+##### Summary for Exploratory Spatial Data Analysis:
+  
+In the descriptive statistics summary table, I learned vital aspects about the data for proper anylazation. The observations contains the number of census tracts which is `r sum(!is.na(merged_data_CO$percent))` . The minimum value for percent foreign born with Israeli descent is `r  min(merged_data_CO$percent, na.rm = TRUE)`. The maximum value is `r round(max(merged_data_CO$percent, na.rm = TRUE),2)`. The corresponding median value is `r median(merged_data_CO$percent, na.rm = TRUE)`. The standard deviation from the mean value is `r round(sd(merged_data_CO$percent, na.rm = TRUE),2)`. It is this low due to the nature of the data being so sparse. The number of N/A value for all the census tracts is `r sum(is.na(merged_data_CO$percent))`. N/A values include areas where no one is currently living, like airports, state parks ect.
+
+The histogram displays the percent of foreign born people with Israeli descent per census tract of Colorado against the frequency/count. Due to the amount of people with Israeli descent living in CO, there is a huge frequency of zero percent values for the histogram. Because of this, the distribution is skewed heavely to the right.
+
+
+****
+
+## Geographic Distribution and Spatial Clustering
+
+
+#### ESDA - Neighbors and Neighborhoods
+```{r neighbors, message = FALSE, warning = FALSE, message = FALSE, warning = FALSE}
+ 
+## Below I am subseting the data to ONLY observations with values and remove NA's
+merged_data_CO <- merged_data_CO[which(!is.na(merged_data_CO$percent)), ]
+
+## Create Queen case neighbors
+merged.data.CO.nb.queen <- poly2nb(merged_data_CO, 
+                           queen = TRUE)
+
+## Print summary to screen-- polygons 1424 census tracts, 6.28 neighbors on average 
+merged.data.CO.nb.queen
+
+```
+
+
+#### ESDA - Spatial Autocorrelation (Moran's I)
+```{r moransI, message = FALSE, warning = FALSE, message = FALSE, warning = FALSE}
+## Convert neighbor object to weight matrix
+## created neighbors
+merged.data.CO.nb.queen <-  nb2listw(merged.data.CO.nb.queen, 
+                            style = "B",         # B is binary (1,0)
+                            zero.policy = TRUE)  # Allow obs with 0 neighbors
+
+
+# Moran's I
+merged_data_CO_moran <- moran.test(merged_data_CO$percent,       # Data we're analyzing
+                           merged.data.CO.nb.queen,         # Sp weights matrix
+                           randomisation = TRUE,   # Compare to randomized values
+                           zero.policy = TRUE)     # Allow obs with 0 neighbors
+
+## Summary
+merged_data_CO_moran
+## global representation of spatial pattern
+```
+
+
+#### ESDA - Spatial Autocorrelation (LISA)
+```{r lisa, message = FALSE, warning = FALSE, message = FALSE, warning = FALSE}
+
+# LISA -- Local Moran's I
+merged.data.CO.lisa <- localmoran(merged_data_CO$percent,        # The column in your sp data 
+                          merged.data.CO.nb.queen,          # Weights object
+                          zero.policy = TRUE) %>%  # keep TRUE for LISA
+  as.data.frame()  # Make result into data frame
+
+## To get "nice" LISA categories for mapping
+
+# Scale the input data to deviation from mean
+cDV <- merged_data_CO$percent - mean(merged_data_CO$percent) 
+
+# Below get spatial lag values for each observation, these are the neighbors' values
+lagDV <- lag.listw(merged.data.CO.nb.queen, merged_data_CO$percent)
+
+# Below we scale the lag values to deviation from mean
+clagDV <- lagDV - mean(lagDV, na.rm = TRUE)
+
+#Below I add holder column with all 0s
+merged.data.CO.lisa$Cat <- rep("0", nrow(merged.data.CO.lisa))
+
+# This adds a label based on the values
+merged.data.CO.lisa$Cat[which(cDV > 0 & clagDV > 0 & merged.data.CO.lisa[,5] < 0.05)] <- "HH" 
+merged.data.CO.lisa$Cat[which(cDV < 0 & clagDV < 0 & merged.data.CO.lisa[,5] < 0.05)] <- "LL"      
+merged.data.CO.lisa$Cat[which(cDV < 0 & clagDV > 0 & merged.data.CO.lisa[,5] < 0.05)] <- "LH"
+merged.data.CO.lisa$Cat[which(cDV > 0 & clagDV < 0 & merged.data.CO.lisa[,5] < 0.05)] <- "HL"
+
+## Quick SUMMARY of LISA output
+table(merged.data.CO.lisa$Cat)
+
+## Add LISA category column to the spatial data for mapping
+merged_data_CO$LISACAT <- merged.data.CO.lisa$Cat
+
+## first chorolpleth map below
+tmap_mode("view")
+
+merged_data_CO.tmap <- tm_shape(merged_data_CO) + 
+  tm_polygons("percent",
+              title = "Percent ",
+              style = "jenks",
+              palette = "Reds",
+              border.col = "Black",
+              border.alpha = 0.25,
+              legend.hist = TRUE) +
+  tm_layout(legend.outside = TRUE)
+# Second the LISA map
+lisa.tmap <- tm_shape(merged_data_CO) + 
+  tm_polygons("LISACAT", 
+              title = "LISA Category",
+  #            style = "cat", 
+              palette = c("0" = "grey", 
+                          "HH" = "red",
+  #                        "HL" = "lightred",
+                          "LL" = "blue",
+                          "LH" = "lightblue"), 
+              border.col = "Black", 
+              border.alpha = 0.25) +
+  tm_layout(legend.outside = TRUE)
+
+# This command maps them together- and syncs them
+tmap_arrange(merged_data_CO.tmap, lisa.tmap, sync = TRUE)
+
+```
+
+
+
+******
+
+
+
+
+
+
+
+##### Summary for Geographic Distribution and Spatial Clustering:
+
+The Moran's I statistic found is .0109. This value is essentially zero, and is assumed that the data- on a GLOBAL level- is falling toward a random pattern. Although this is considered "barely clustered" it is more viable to suggest the global pattern for this data set is random. The corresponding P-value is .2, this is significantly greater than .05, suggesting that it is NOT clustered and is a random global pattern.
+
+ESDA - Spatial Autocorrelation (LISA):
+for the LISA information table, the data shows there is 1362 census tracts with zero observations and zero neighbors, this makes sense because of the nature of the data and how many zero values there are. There are 4 census tracts with high observation and high neighbors and according to the map created, every tract is in the City of Denver. There are 58 census tracts with low observations and high neighbors and according to the map these are almost all also in the City of Denver/Boulder. 
+
+Lastly there are two displayed maps. The map on the left displays the population percent of foreign born people with Israeli descent per census tract in the state of Colorado for 2021. Because of the nature of the data- it is classified with natural breaks(jenks), displaying from pale(zero percent value) to blood red(high percent value). The map on the right is the LISA map, this displays the spatial autocorrelation of the percentage values from the data. Zero is Grey, High High(HH) is Red, High low(HL) is Light red, Low low(LL) is Blue and Low High(LH) is lightblue.
+
+
+****
+
+#### Research Question and Analysis: 
+
+Research Question:
+
+Does the geographic dispersion of foreign born people with Israeli Descent seem to cluster in major metropolitan areas due to a preference to move to more densely populated areas with greater corresponding cultural significance?
+
+
+Hypothesis:     
+
+There may be clustering of foreign born people with Israeli descent in urban areas such as City of Denver and Boulder due to a preference to move to more densely populated areas with greater cultural significance.
+
+
+Analysis:
+
+Due to the limited observations of foreign people of Israeli descent in Colorado, there are many zeros in the data. This significant number of zeros makes it very difficult to transform the data into an accurate linear regression model.The inability to accurately transform the data into this model leaves the analyzer with one option for supporting the hypothesis- the LISA. The LISA(spatial autocorrelation) shows clusters of of people with Israeli descent in urban areas/census tracts, like the City of Denver and Boulder County- CU Boulder is. It assumed that Colorado's capital city, Denver, and most prominent University county, CU boulder, are going to be the most densely populated areas of the state. According to the LISA map, all 4 of the "High High" are located in census tracts that are in Denver. And almost all 58 census tracts with "Low high" are in Denver and Boulder county-the rest a ski towns. Since the City of Denver, and Boulder are the most desnly populated areas of the state, this is clear evidence  supporting the hypothesis that these populations may prefer to move to more densely populated areas with greater cultural significance and diversity. Although the Moran's I rejects the hypothesis that the data is clustered on a GLOBAL level, on a local level, evidence from the LISA map observationally supports that the spatial autocorrelation data is clustered into more densely populated areas of the state(like capital city and Boulder).
+
+
+
+****
+
+
+## Conclusion
+
+
+The percent of foreign born people having Israeli descent in the State of Colorado is low, which was to be expected, and supports the distribution of the histogram and summary table. The Moran's I supported a global random pattern and the LISA supported a clustered pattern centered in urban areas, supporting the hypothesis that the populace prefered urban areas based population density.
+
+
+
+
+
+****
+## Document Statistics
+
+##### Word Count
+
+```{r, echo = FALSE, message = FALSE, message = FALSE, warning = FALSE}
+wordcountaddin:::text_stats()
+```
