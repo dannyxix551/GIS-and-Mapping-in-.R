@@ -1,0 +1,344 @@
+---
+## title for assigment 2 for r markdown doc
+title: "Assignment #2"
+## author for R markdown doc
+author: "Daniel Crownover"
+## date for r markdown doc
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+## output for R markdown doc- coloration and themes 
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+## what does this chunk of code do?
+knitr::opts_chunk$set(echo = TRUE)
+## installing/recounting tidyverse package for use
+library(tidyverse)
+## installing/recounting sf package for use
+library(sf)
+##installing/recounting tmap package for use
+library(tmap)
+
+options(scipen=999)
+
+```
+
+
+### Download and Read Data
+```{r}
+download.file("https://delamater.web.unc.edu/files/2019/09/WA_VACC_SCHDIST_2017.csv","vaccination_data.csv")
+## download.file = downloads file/data from the internet and saves it on my computer under the name vaccination_data.csv
+
+wavac <- read_csv("vaccination_data.csv")
+## Above the previously saved file named vaccination_data.csv is now read into the R programing software with the command read_csv()
+
+```
+### Washington Data Summary
+```{r,include = FALSE}
+## The include = false function hides this entire chunk of code from the .html file
+
+## Get number of rows
+wavac.r <-  nrow(wavac)
+ ## nrow = counting the number of rows
+## Get number of columns
+wavac.c <- ncol(wavac)
+ ## ncol counting number of columns
+## Identify No Data values in Enrollment column
+wavac.nd <- which(is.na(wavac$ENR17))
+##which(is.na(wavac$ENR17))-- na= true; real numeric values= false
+##is.na -- creates a boolean answer --> iterates through every row -- which = not a loop; which derives index and pinpoints location
+## Identify the number of No Data values (in Enrollment column)
+wavac.nd.length <- length(wavac.nd)
+## this is looking at the wavac.nd object-- it is counting how many NA that are present in the data
+ 
+## Get total kindergarten enrollment in 2017
+wavac.enr <-sum(wavac$ENR17,na.rm = TRUE)
+
+## we wont use col.sum here becuase col.sum = sum from multiple columns-- we are only tryng to determine from 2017
+
+ 
+## Get total number of kindergarteners up to date
+wavac.utd <- sum(wavac$UTD17,na.rm = TRUE)
+ 
+## Calculate the percent of kindergarteners up to date
+wavac.utd.pct <- round(wavac.utd/ wavac.enr *100, digit = 2)
+
+## here I rounded the digits because it looked ugly-- oh I did this before I read it in the assignment haha!
+
+
+
+
+```
+
+
+```{r}
+## The code below is inline code.
+#I input the objects to represent their corresponding numeric values.
+#I used `r ...` to input the objects into their intended areas
+```
+
+The Washington school district data file has `r wavac.r` rows (school districts) and `r wavac.c` columns. `r wavac.nd.length` school districts reported "No Data" for enrollment and vaccination data. Statewide in 2017, there were `r wavac.enr` kindergarteners, and `r wavac.utd` of these kindergarteners were up to date on vaccinations, for an up to date percent of `r wavac.utd.pct` .
+
+
+
+
+
+### Working With a Shapefile
+
+```{r}
+##I know these where already pulled up in an earlier chunk but I wanted to do it again to make sure
+library(sf)
+library(tidyverse)
+
+## reading in the shapefile below!
+# Read in WA school district shapefile
+wa.sd.sp <- st_read("wa_schdist_shapefile/WA_SCHDIST.shp")
+## above we are assigning the shapefile to the object wa.sd.sp
+# The R software reads this command from left to right in order to open  "wa_schdist_shapefile" --> it then opens "WA_SCHDIST.shp" inside of that folder!
+wa.sd.sp  ## on this line we are providing summary info about the object! 
+
+# Check if valid geometry
+sum(st_is_valid(wa.sd.sp)) ## Equal to number of features? Not yet
+
+# Fix geometry (easiest attempt)
+wa.sd.sp <- st_make_valid(wa.sd.sp)
+
+sum(st_is_valid(wa.sd.sp)) ## Equal to number of features? Now it is
+
+## Above-these commands are indicating that there are several features with invalid geometry-- from (sum(st_is_valid(wa.sd.sp)). 
+## Invalid geometry often exists in data that is downloaded from the web, and means there is something with the geometry that is preventing that feature from being appropriately read by R (for instance, if the geometry self-intersects).
+## Fixing the geometry using the "wa.sd.sp <- st_make_valid(wa.sd.sp)" command corrects any errors the features of the geometry have so that it can be appropriately read by R!
+
+ 
+
+
+
+
+
+##  Below I am displaying the polygon features using the plot(st_geometry(wa.sd.sp)) command
+## The polygon of the spacefile under the object wa.sd.sp display's in the console below. 
+## We use the plot command to display, the st_geometry as an argument to display geometry and the wa.sd.sp for the command to read into to derive the data.
+
+plot(st_geometry(wa.sd.sp))
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
+
+
+
+
+### QUESTION #1
+How many files are associated with the Washington School Districts shapefile?
+
+Answer: 8 files are associated with the WSD shapefile.
+
+
+### QUESTION #2
+Part 1.)  How many observations/features are in the Washington School Districts shapefile?
+Answer P1: There are 294 features in the Washington School Districts shapefile
+
+ part 2.) How many columns/variables are in the Washington School Districts shapefile?
+Answer P2: There are 5 columns/variables in the shapefile
+
+Work for part 1.) and part 2.) are displayed below
+
+
+below I used the dimensions(dim) command to determine and print the rows(features) and columns(variables) in the tabular data set to more easily derive the answers for question 2.
+ 
+RandC <- dim(wa.sd.sp)
+RandC
+
+but you can also do this- there are multiple ways to get same answer:
+
+below command displays rows
+R <- nrow(wa.sd.sp)
+R
+
+below command displays columns
+C <- ncol(wa.sd.sp)
+C
+
+part 3.) What is the northernmost coordinate in the Washington School Districts shapefile bounding box?
+Answer: xmax: 971101.2 ymax: 5444545 or (971101.2,5444545) Its North East but the NORTHERN MOST POINT is 5444545 degrees north!
+
+This information came from the "Simple feature collection" 
+specifically from the bounding box
+
+
+
+
+
+
+
+
+
+```{r}
+
+## Extract the attributes (data.frame) from an sf object
+wa.sd.sp.att.data.only <- st_drop_geometry(wa.sd.sp)
+ 
+## Get info
+str(wa.sd.sp.att.data.only)
+ 
+## Extract a single column of (attribute) data
+sd.names <- wa.sd.sp$NAME
+sd.names[1:6]
+ 
+## Add a new column/variable to the sf object
+wa.sd.sp$NEWCOLUMN <- 1:294
+ 
+## Remove a column/variable from the sf object
+wa.sd.sp$NEWCOLUMN <- NULL
+ 
+## Query a column and subset
+## Which school districts have PK (pre-kindergarten)?
+pk.sds <- which(wa.sd.sp$LOGRADE == "PK")
+length(pk.sds) # How many?
+ 
+## Create a new spatial data layer containing ONLY the
+## school districts that have PK (subset the data)
+wa.sd.sp.pk <- wa.sd.sp[pk.sds,]
+ 
+## Plot the subset
+plot(st_geometry(wa.sd.sp.pk), col = "orange")
+
+
+## This map shows only the districts that have PreK- highlighted in orange
+
+## here you specifically told me not to comment for this chunk during office hours(because they already have comments)-- so I didn't explain any of the commands. Hope this is ok.
+
+```
+### Question #3
+How many Washington School Districts have pre-kindergarten?
+
+Answer: using the commands below I was able to obtain 185 districts that have PreK
+
+Work:
+command below were used
+
+
+
+
+pk.sds <- which(wa.sd.sp$LOGRADE == "PK")
+
+length(pk.sds) 
+
+
+
+
+
+
+### Table Join and Map
+```{r}
+
+##Test if a perfect match
+all(wa.sd.sp$GEOID %in% wavac$GEOID)
+## if false we could wrangle the data. But its true!
+
+# Join vaccination data to spatial data
+wa.sd.sp <- merge(wa.sd.sp,      # Spatial Data layer
+                  wavac,         # Table Data layer
+                  by = "GEOID")  # Key field (this is both)
+
+## Above we are using the merge command to merge the GEOID wa.sd.sp data set with the wavac GEOID data set!
+
+
+## Calculate column with Percent Up to Date
+wa.sd.sp$UTDR17 <- 100 * wa.sd.sp$UTD17 / wa.sd.sp$ENR17
+ 
+## Create map 
+## Map will display Percent of Kindergartners Up to Date on vaccination!
+tm_shape(wa.sd.sp) + 
+  tm_polygons("UTDR17", 
+              style = "jenks",
+              palette = "YlOrRd")
+## we are using tm_shape(wa.sd.sp) to develope the shape of the map
+## we are using the tm_ polygons to develope the polygons
+## the other two are color and style features
+ 
+
+
+```
+
+### QUESTION #4
+What is the data type of the field GEOID in wavac? What is the data type of the field GEOID in wa.sd.sp? Where/how did you find this information?]
+
+The data type of wa.sd.sp GEOID is: character
+The data type for wavac GEOID is:   numeric
+
+I derived this information from the below commands:
+
+
+data type from wa.sd.sp data below:
+
+dtype1<-class(wa.sd.sp$GEOID)
+
+dtype1
+
+
+
+data type from wavac data below:
+
+dtype2<-class(wavac$GEOID)
+
+dtype2
+
+
+
+### QUESTION #5
+
+Why does all(1:10 %in% 1:10) equal TRUE and all(1:5 %in% 1:10) equal TRUE, but all(1:10 %in% 1:5) equal FALSE? (2-3 sentences)?
+
+all(1:10 %in% 1:10) 
+
+
+all(1:5 %in% 1:10)
+
+
+all(1:10 %in% 1:5)
+
+Answer: The reason "all(1:10 %in% 1:5)" is false is because not all of 1-10 numbers can fit inside of 1-5; in other words,all 1-10 numbers cannot fit through 1-5 because five numbers will be left out, that is why the output is false. For the other two, it is true that 1-10 numbers can fit inside 1-10 numbers and it is true that 1-5 can fit inside 1-10 without any left out. This is the best I can describe it in words- I know whats going on though, so hopefully this is sufficient. 
+
+
+
+
+
+
+
+
+
+### QUESTION #6
+
+Do you see any interesting spatial patterns in the map of Percent of Kindergartners Up to Date on vaccination?… for example, do you see regions that are higher/lower or clumps/clusters of high/low values? (2-4 sentences)
+
+
+
+Answer: There are several regions where the percent of kindergardners who received vaccinations in the year of 2017 is higher and in these areas they have seemed to clump together correspondingly. The red areas(or the areas containing the highest percentage of kindergarten vaccinations) border each other much of the time. The same occurs with districts that have 76.2-90.4 percent vaccinations- they cluster together. the lower the percentage of vaccinations get, the lower the cluster rate is, and th higher the dispersion rate seems to be- observationally.
+
+
+
+
+
+
+
+
+
+
+
+
+
