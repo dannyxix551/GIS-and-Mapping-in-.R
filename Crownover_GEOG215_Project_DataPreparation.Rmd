@@ -1,0 +1,173 @@
+---
+title: 'Project Task 1'
+author: "Daniel Crownover"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+---
+### Loading Packages
+```{r}
+## print the output of the code into the html
+knitr::opts_chunk$set(echo = TRUE)
+
+##Installing tigris and tidycensus
+
+##install.packages(c("tigris", "tidycensus"))
+library(tigris)
+library(tidycensus)
+library(tidyverse)
+library(tmap)
+library(sf)
+```
+
+### Installing API Key and Loading Respective Data
+```{r}
+
+## Here Tidycensus has a feature that allows us to extract the names of all available variables for each survey- this line of code allows us to do that:
+## all of possible variables
+acs_21_vars = load_variables(
+                           year = 2021, #survey year
+                           "acs5", #survey
+                           cache = TRUE)
+
+
+
+
+
+
+
+## isolate variables of interest
+#foreign born pop. from Israel in U.S
+analysis_var <- "B05006_081"
+#normalization of total population B05006_001
+normalization_var <- "B05006_001"
+
+
+## getting data for Colorado
+
+# Below we are extracting data of interest saving to object CO_Israeli_Decsent
+
+CO_Israeli_Decsent <- get_acs(
+              geography = 'tract', #The geographical level.E.g. state, county, tract
+              state = 'CO', #What state to extract data for
+              variables = analysis_var, #the variable of interest
+              summary_var = normalization_var, #the normalization variable
+              survey = "acs5", #what survey to extract data from
+              year = 2021, #year of interest
+                       )
+
+
+
+
+#Below we are getting CO census tracts--> using the tigris package(spatial)
+
+CO_tracts <- tracts(state ="CO", #selected state
+                    year = 2021, #selected year
+                    cb = TRUE) # downloads a generalized file that loads faster. 
+
+
+```
+### Data information
+```{r}
+## This chunk is useing glimpse() on each data layer and will print them to the console
+##Prints the number of observations/variables (rows/columns) for each layer
+## initially I couldn't figure out why I was getting an error- I looked it up and it said that this command runs under the tidyverse package
+
+## here we are printing the CO_Israeli_descendants object- this is the vairable we are looking at, it prints the columns and rows of the object?
+## same as priting str() 
+glimpse(CO_Israeli_Decsent)
+
+#### below is printing the Colorado census tract rows and columns for 2021
+glimpse(CO_tracts)
+
+
+```
+### Map Display
+```{r}
+
+## make another chunk that makes the map from the spatial data layer
+
+## this command displays the CO_tracts data on the tmap basemap and adding the tmap_polygons too it as well- displayed in the area below
+tm_shape(CO_tracts) + tm_polygons()
+```
+
+
+### Cleaning Up Data
+```{r}
+##This chunk is making one minor calculation or modification of one of the layers
+
+
+#Create a israeli(orgin) population percent for CO-using $estimate and $summary
+
+CO_Israeli_Decsent$percent <- (CO_Israeli_Decsent$estimate/ CO_Israeli_Decsent$summary_est) * 100
+CO_Israeli_Decsent$percent
+
+
+
+## Dont include in final-- just to show how I can find specific data-- You said you wouldn't take off points for this so I left it in for my personal use 
+CO_Israeli_Decsent[17,]$percent
+
+
+```
+
+
+
+
+In the code chunk above I know the command for percent calculation worked becuase I can see the created column inside of the data frame in my environmnet. I also know it worked because I assigned it to the object CO_Israeli_Decsent$percent and then proceded to print the object- where it gives me the percent values per row for the data frame.
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Spatialize
+
+```{r}
+### In this chunk we are making the non-spatial data into spatial data by executing a table join
+
+# Joining the spatial and non-spatial -- merging these dataframes using the merge command-- our common variable is GEOID-- merging nonspatial data(CO_IS_Desent with the spatial data(CO_Tracts)) to create 1 spatial file that can be used to make maps and anylize the information visually
+merged_dataCO <- merge(CO_tracts, CO_Israeli_Decsent , by.x = "GEOID", by.y = "GEOID")
+merged_dataCO
+
+## Here we are making the interactive map, interactive with the tmap("veiw") command
+## we are using the merged data to display the maps shape****, and the percent if people from israeli decent per census track for the state of CO
+tmap_mode("view")
+tm_shape(merged_dataCO) + tm_polygons("percent")
+
+
+#Below I am writing out spatial data layer with command ->(merged_dataCO) --> ## this process is saving it to the computer Final_Project, Data file--> as a .shp file
+st_write(merged_dataCO, 
+         "../Data/merged_dataCO.shp", 
+         append = FALSE)
+
+        
+
+
+
+```
+
+1. describe/explain the process of making your data spatial?
+In order to make our data spatial, we have to merge 2 dissimilar data files together, one spatial and one non-spatial. We cannot map 2 files together on top of each other, therefore, we need to combine/join the data sets to contain all the aspects we need/want in order to map and vizualize the data correspondingly. First we opened the files, read them in and altered what needed altering to each respective file. We then used the Merge() command to bring the files together to make one spatial file that could be read by tmap.
+
+
+
+
+
+2. Describe the spatial pattern you see in your map?
+Each census tract contains the percentage number of foreign born people in that tract that have Israel descent. The more populated areas, such as the city of Denver(CO's capital) and boulder county, have a higher percentage of foreign born people in general- because they are more heavely populated areas. In a very simple sense, this is the spatial distribution of the map
+.
+
+
+
+
+
+
