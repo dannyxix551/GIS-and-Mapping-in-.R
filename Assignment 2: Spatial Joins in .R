@@ -1,6 +1,6 @@
 ####
 #### R script to perform a table join and create a map
-#### for GEOG 215, Assignment #4
+#### for GEOG 215, Assignment #
 ####
 
 #### Shows how to retrieve geojson data as well!
